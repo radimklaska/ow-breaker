@@ -4,33 +4,104 @@
 
 <head>
     <script type="module" src="https://unpkg.com/esp-web-tools@7.1.0/dist/web/install-button.js?module"></script>
-
-
+    <style>
+        body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+        .release { display: flex; align-items: center; gap: 0.75rem; margin: 0.5rem 0; }
+        .release .tag { font-weight: 600; min-width: 6rem; }
+        .release .badge { font-size: 0.8em; padding: 0 0.4em; border-radius: 3px; background: #eee; color: #555; }
+        .release .badge.prerelease { background: #fff3cd; color: #856404; }
+        .release .badge.latest { background: #d4edda; color: #155724; }
+        #releases .status { color: #666; font-style: italic; }
+        #releases .error { color: #b00; }
+    </style>
 </head>
 
 <body>
     <p>
-        Click the corresponding connect button to begin installing your choosen version of Owie.
-        <br>
-        This page is updated farily frequently, but not automatically, so it might not have the absolute newest
-        binaries, but they should be within a few days old.
-        <br>
-        I am working on getting some automation set up to automatically update the binaries, but I dunno when that will
-        happen.
+        Click the connect button next to a version to install it on your ESP device.
     </p>
     <p>
-        If you don't see your ESP device in the list of devices to choose, you might need to install
-        <a href="https://esphome.github.io/esp-web-tools/#drivers">the drivers.</a>
+        If you don't see your ESP device in the list, you might need to install
+        <a href="https://esphome.github.io/esp-web-tools/#drivers">the drivers</a>.
     </p>
 
-    <div id="install-button-stable">
-        Stable (main branch):
-        <esp-web-install-button manifest="manifest/manifest-stable.json"></esp-web-install-button>
+    <p>
+        Firmware versions are fetched from the GitHub releases of
+        <a href="https://github.com/radimklaska/Owie/releases" id="firmware-repo-link">radimklaska/Owie</a>.
+    </p>
+
+    <div id="releases">
+        <p class="status">Loading releases…</p>
     </div>
-    <div id="install-button-latest">
-        Latest (1.4.3):
-        <esp-web-install-button manifest="manifest/manifest-latest.json"></esp-web-install-button>
-    </div>
+
+    <script>
+        const params = new URLSearchParams(location.search);
+        const REPO = params.get('repo') || 'radimklaska/Owie';
+        const repoLink = document.getElementById('firmware-repo-link');
+        repoLink.href = `https://github.com/${REPO}/releases`;
+        repoLink.textContent = REPO;
+
+        async function loadReleases() {
+            const container = document.getElementById('releases');
+            try {
+                const res = await fetch(`https://api.github.com/repos/${REPO}/releases`);
+                if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+                const releases = await res.json();
+                container.innerHTML = '';
+                const usable = releases.filter(r => r.assets.some(a => a.name === 'firmware.bin'));
+                if (!usable.length) {
+                    container.innerHTML = '<p class="status">No releases with firmware.bin found.</p>';
+                    return;
+                }
+                let latestSeen = false;
+                for (const release of usable) {
+                    const asset = release.assets.find(a => a.name === 'firmware.bin');
+                    const manifest = {
+                        name: `Owie ${release.tag_name}`,
+                        version: release.tag_name,
+                        builds: [{
+                            chipFamily: 'ESP8266',
+                            parts: [{ path: asset.browser_download_url, offset: 0 }]
+                        }]
+                    };
+                    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+                    const manifestUrl = URL.createObjectURL(blob);
+
+                    const row = document.createElement('div');
+                    row.className = 'release';
+
+                    const tag = document.createElement('span');
+                    tag.className = 'tag';
+                    tag.textContent = release.tag_name;
+                    row.appendChild(tag);
+
+                    if (!release.prerelease && !latestSeen) {
+                        const badge = document.createElement('span');
+                        badge.className = 'badge latest';
+                        badge.textContent = 'latest';
+                        row.appendChild(badge);
+                        latestSeen = true;
+                    }
+                    if (release.prerelease) {
+                        const badge = document.createElement('span');
+                        badge.className = 'badge prerelease';
+                        badge.textContent = 'pre-release';
+                        row.appendChild(badge);
+                    }
+
+                    const btn = document.createElement('esp-web-install-button');
+                    btn.setAttribute('manifest', manifestUrl);
+                    row.appendChild(btn);
+
+                    container.appendChild(row);
+                }
+            } catch (err) {
+                container.innerHTML = `<p class="error">Failed to load releases: ${err.message}</p>`;
+            }
+        }
+
+        loadReleases();
+    </script>
 </body>
 
 </html>
