@@ -3,6 +3,7 @@
 <html lang="en">
 
 <head>
+    <meta charset="utf-8">
     <script type="module" src="https://unpkg.com/esp-web-tools@7.1.0/dist/web/install-button.js?module"></script>
     <style>
         body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
@@ -13,6 +14,10 @@
         .release .badge.latest { background: #d4edda; color: #155724; }
         #releases .status { color: #666; font-style: italic; }
         #releases .error { color: #b00; }
+        #repo-selector { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+        #repo-selector label { font-weight: 600; }
+        #repo-custom { padding: 0.25rem 0.5rem; min-width: 18rem; }
+        #repo-custom[hidden] { display: none; }
     </style>
 </head>
 
@@ -25,9 +30,20 @@
         <a href="https://esphome.github.io/esp-web-tools/#drivers">the drivers</a>.
     </p>
 
+    <div id="repo-selector">
+        <label for="repo-select">Firmware source:</label>
+        <select id="repo-select">
+            <option value="radimklaska/Owie">radimklaska/Owie (default)</option>
+            <option value="lolwheel/Owie">lolwheel/Owie</option>
+            <option value="ow-breaker/Owie">ow-breaker/Owie</option>
+            <option value="__custom__">Other…</option>
+        </select>
+        <input id="repo-custom" type="text" placeholder="owner/Repo" hidden />
+    </div>
+
     <p>
-        Firmware versions are fetched from the GitHub releases of
-        <a href="https://github.com/radimklaska/Owie/releases" id="firmware-repo-link">radimklaska/Owie</a>.
+        Releases of
+        <a href="#" id="firmware-repo-link"></a>:
     </p>
 
     <div id="releases">
@@ -35,16 +51,52 @@
     </div>
 
     <script>
-        const params = new URLSearchParams(location.search);
-        const REPO = params.get('repo') || 'radimklaska/Owie';
-        const repoLink = document.getElementById('firmware-repo-link');
-        repoLink.href = `https://github.com/${REPO}/releases`;
-        repoLink.textContent = REPO;
+        const PRESETS = ['radimklaska/Owie', 'lolwheel/Owie', 'ow-breaker/Owie'];
+        const DEFAULT_REPO = 'radimklaska/Owie';
 
-        async function loadReleases() {
-            const container = document.getElementById('releases');
+        const select = document.getElementById('repo-select');
+        const customInput = document.getElementById('repo-custom');
+        const repoLink = document.getElementById('firmware-repo-link');
+        const container = document.getElementById('releases');
+
+        function readInitialRepo() {
+            const params = new URLSearchParams(location.search);
+            const fromUrl = params.get('repo');
+            return fromUrl || DEFAULT_REPO;
+        }
+
+        function applyRepoToControls(repo) {
+            if (PRESETS.includes(repo)) {
+                select.value = repo;
+                customInput.hidden = true;
+                customInput.value = '';
+            } else {
+                select.value = '__custom__';
+                customInput.hidden = false;
+                customInput.value = repo;
+            }
+        }
+
+        function updateUrl(repo) {
+            const url = new URL(location.href);
+            if (repo === DEFAULT_REPO) {
+                url.searchParams.delete('repo');
+            } else {
+                url.searchParams.set('repo', repo);
+            }
+            history.replaceState(null, '', url);
+        }
+
+        function isValidRepo(value) {
+            return /^[\w.-]+\/[\w.-]+$/.test(value);
+        }
+
+        async function loadReleases(repo) {
+            repoLink.href = `https://github.com/${repo}/releases`;
+            repoLink.textContent = repo;
+            container.innerHTML = '<p class="status">Loading releases…</p>';
             try {
-                const res = await fetch(`https://api.github.com/repos/${REPO}/releases`);
+                const res = await fetch(`https://api.github.com/repos/${repo}/releases`);
                 if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
                 const releases = await res.json();
                 container.innerHTML = '';
@@ -100,7 +152,40 @@
             }
         }
 
-        loadReleases();
+        select.addEventListener('change', () => {
+            if (select.value === '__custom__') {
+                customInput.hidden = false;
+                customInput.focus();
+                return;
+            }
+            customInput.hidden = true;
+            customInput.value = '';
+            updateUrl(select.value);
+            loadReleases(select.value);
+        });
+
+        function commitCustom() {
+            const value = customInput.value.trim();
+            if (!value) return;
+            if (!isValidRepo(value)) {
+                container.innerHTML = `<p class="error">"${value}" is not a valid owner/repo.</p>`;
+                return;
+            }
+            updateUrl(value);
+            loadReleases(value);
+        }
+
+        customInput.addEventListener('change', commitCustom);
+        customInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                commitCustom();
+            }
+        });
+
+        const initial = readInitialRepo();
+        applyRepoToControls(initial);
+        loadReleases(initial);
     </script>
 </body>
 
